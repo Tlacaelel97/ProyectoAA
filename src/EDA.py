@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 import cv2
 from tqdm import tqdm
+import random
+import matplotlib.pyplot as plt
 
 
 def scan_labels(base_path) -> pd.DataFrame:
@@ -59,6 +61,41 @@ def run_eda_stats(df, num_classes=64) -> tuple[np.ndarray, np.ndarray]:
                 image_presence[c] += 1
 
     return pixel_counts, image_presence
+
+
+def visual_inspection(labels_base_path, images_base_path, num_samples=3) -> None:
+    """
+    Realiza una inspección visual de un número aleatorio de muestras para verificar la correspondencia entre las máscaras de etiquetas y las imágenes RGB.
+    Argumentos:
+        - labels_base_path: Ruta al directorio que contiene las máscaras de etiquetas (labelids).
+        - images_base_path: Ruta al directorio que contiene las imágenes RGB.
+        - num_samples: Número de muestras aleatorias a visualizar.
+    """
+    label_files = list(pathlib.Path(labels_base_path).rglob("*_labelids.png"))
+    samples = random.sample(label_files, num_samples)
+
+    fig, axes = plt.subplots(num_samples, 2, figsize=(20, 5 * num_samples))
+
+    for i, lp in enumerate(samples):
+        sequence_name = lp.parent.name
+        # Reemplazamos el sufijo de la etiqueta por el de la imagen visible
+        base_name = lp.name.replace("_labelids.png", "_vis.png")
+        rp = pathlib.Path(images_base_path) / sequence_name / base_name
+
+        if not rp.exists():
+            print(f"Error: No se encontró {rp.name} en {rp.parent}")
+            continue
+
+        img_vis = cv2.cvtColor(cv2.imread(str(rp)), cv2.COLOR_BGR2RGB)
+        mask = cv2.imread(str(lp), cv2.IMREAD_GRAYSCALE)
+
+        axes[i, 0].imshow(img_vis)
+        axes[i, 0].set_title(f"RGB (Visible): {sequence_name}")
+        axes[i, 1].imshow(mask, cmap="nipy_spectral", vmin=0, vmax=63)
+        axes[i, 1].set_title("Máscara de Grano Fino")
+
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
