@@ -28,7 +28,7 @@ def scan_labels(base_path) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-def run_eda_stats(df, num_classes=64) -> tuple[np.ndarray, np.ndarray]:
+def run_eda_stats(df: pd.DataFrame, num_classes=64) -> tuple[np.ndarray, np.ndarray]:
     """
     Realiza un análisis exploratorio de datos (EDA) para entender la distribución de etiquetas en las máscaras.
     Argumentos:
@@ -63,6 +63,63 @@ def run_eda_stats(df, num_classes=64) -> tuple[np.ndarray, np.ndarray]:
     return pixel_counts, image_presence
 
 
+def analyze_imbalance(
+    pixel_counts, mapping_csv="data/goose2D/goose_2d_train/goose_label_mapping.csv"
+) -> pd.DataFrame:
+    # Cargar mapeo y preparar datos
+    mapping = pd.read_csv(mapping_csv)
+    df = pd.DataFrame(
+        {"label_key": np.arange(len(pixel_counts)), "pixel_count": pixel_counts}
+    )
+    df = pd.merge(mapping, df, on="label_key")
+
+    # Calcular Frecuencias
+    total_pixels = df["pixel_count"].sum()
+    df["frequency"] = df["pixel_count"] / total_pixels
+
+    # Median Frequency Balancing (MFB)
+    # Solo consideramos clases con presencia > 0 para no sesgar la mediana
+    present_df = df[df["pixel_count"] > 0].copy()
+    median_freq = present_df["frequency"].median()
+
+    # El peso es Mediana / Frecuencia de la clase
+    df["weight"] = 0.0  # Default para clases ausentes
+    df.loc[df["pixel_count"] > 0, "weight"] = median_freq / df["frequency"]
+
+    # Normalización de Pesos
+    active_weights = df.loc[df["weight"] > 0, "weight"]
+    df.loc[df["weight"] > 0, "weight"] = df["weight"] / active_weights.mean()
+
+    # Identificar Clases Críticas
+    print("\n--- RESUMEN ESTRATÉGICO DE DESBALANCEO ---")
+    print(
+        f"Ratio de Desbalanceo (Max/Min): {df['pixel_count'].max() / present_df['pixel_count'].min():.2e}"
+    )
+
+    print("\nClases Dominantes (VQ-VAE tenderá a colapsar aquí):")
+    print(
+        df.sort_values(by="pixel_count", ascending=False)[
+            ["class_name", "frequency"]
+        ].head(5)
+    )
+
+    print("\nClases Raras (Requieren Pesos Altos):")
+    print(
+        df[df["pixel_count"] > 0]
+        .sort_values(by="pixel_count")[["class_name", "weight"]]
+        .head(5)
+    )
+
+    # Guardar pesos
+    weights_dict = df.set_index("label_key")["weight"].to_dict()
+    import json
+
+    with open("class_weights.json", "w") as f:
+        json.dump(weights_dict, f)
+
+    return df
+
+
 def visual_inspection(labels_base_path, images_base_path, num_samples=3) -> None:
     """
     Realiza una inspección visual de un número aleatorio de muestras para verificar la correspondencia entre las máscaras de etiquetas y las imágenes RGB.
@@ -78,32 +135,41 @@ def visual_inspection(labels_base_path, images_base_path, num_samples=3) -> None
 
     for i, lp in enumerate(samples):
         sequence_name = lp.parent.name
-        # Reemplazamos el sufijo de la etiqueta por el de la imagen visible
-        base_name = lp.name.replace("_labelids.png", "_vis.png")
-        rp = pathlib.Path(images_base_path) / sequence_name / base_name
 
-        if not rp.exists():
-            print(f"Error: No se encontró {rp.name} en {rp.parent}")
+        # Extraemos el Frame ID (los 4 dígitos entre '__' y '_')
+        # Ejemplo: 2022-09-14_garching_uebungsplatz__0000_... -> 0000
+        try:
+            frame_id = lp.name.split("__")[1].split("_")[0]
+        except (IndexError, AttributeError):
             continue
 
-        img_vis = cv2.cvtColor(cv2.imread(str(rp)), cv2.COLOR_BGR2RGB)
+        img_folder = pathlib.Path(images_base_path) / sequence_name
+
+        search_pattern = f"*_{frame_id}_*vis.png"
+        rgb_candidates = list(img_folder.glob(search_pattern))
+
+        if not rgb_candidates:
+            print(
+                f"Error: No se encontró imagen vis para frame {frame_id} en {img_folder}"
+            )
+            continue
+
+        # Seleccionamos el primer candidato
+        rp = rgb_candidates[0]
+
+        img = cv2.cvtColor(cv2.imread(str(rp)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(str(lp), cv2.IMREAD_GRAYSCALE)
 
-        axes[i, 0].imshow(img_vis)
-        axes[i, 0].set_title(f"RGB (Visible): {sequence_name}")
+        axes[i, 0].imshow(img)
+        axes[i, 0].set_title(f"Imagen RGB (Sensor: Windshield)\n{rp.name}")
         axes[i, 1].imshow(mask, cmap="nipy_spectral", vmin=0, vmax=63)
-        axes[i, 1].set_title("Máscara de Grano Fino")
+        axes[i, 1].set_title(f"Máscara Fine-Grained (64 clases)\n{lp.name}")
 
     plt.tight_layout()
     plt.show()
 
 
 if __name__ == "__main__":
-    base_path = "data/goose2D/goose_2d_train/labels/train"
-    df = scan_labels(base_path)
-    print(df.head())
-
-    pixel_stats, presence_stats = run_eda_stats(df)
-    print("Distribución de píxeles por clase:")
-    for i, count in enumerate(pixel_stats):
-        print(f"Clase {i}: {count} píxeles")
+    LABELS_BASE_PATH = "data/goose2D/goose_2d_train/labels/train"
+    IMAGES_BASE_PATH = "data/goose2D/goose_2d_train/images/train"
+    visual_inspection(LABELS_BASE_PATH, IMAGES_BASE_PATH, num_samples=3)
