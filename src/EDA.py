@@ -169,7 +169,136 @@ def visual_inspection(labels_base_path, images_base_path, num_samples=3) -> None
     plt.show()
 
 
+def analyze_geometry(images_base_path) -> pd.DataFrame:
+    """
+    Analiza las resoluciones y Aspect Ratios de todas las secuencias.
+    Ayuda a definir la resolución de entrada fija para el VQ-VAE.
+    """
+    img_root = pathlib.Path(images_base_path)
+    resolutions = []
+
+    print("Escaneando geometría de sensores...")
+    # Iteramos por las carpetas de secuencias (vuelos)
+    for seq_dir in tqdm(list(img_root.iterdir())):
+        if not seq_dir.is_dir():
+            continue
+
+        # Tomamos una muestra para no saturar (el sensor es constante por secuencia)
+        sample_file = next(seq_dir.glob("*_vis.png"), None)
+        if sample_file:
+            img = cv2.imread(str(sample_file))
+            if img is not None:
+                h, w = img.shape[:2]
+                resolutions.append(
+                    {
+                        "sequence": seq_dir.name,
+                        "width": w,
+                        "height": h,
+                        "aspect_ratio": round(w / h, 2),
+                    }
+                )
+
+    df_geom = pd.DataFrame(resolutions)
+    summary = (
+        df_geom.groupby(["width", "height", "aspect_ratio"])
+        .size()
+        .reset_index(name="count")
+    )
+
+    print("\n--- REPORTE DE GEOMETRÍA ---")
+    print(summary)
+    return df_geom
+
+
+def triple_visual_inspection(
+    labels_base_path: str, images_base_path: str, num_samples=3
+) -> None:
+    """
+    Visualización Side-by-Side: RGB, NIR y Máscara Fine-Grained.
+    Valida la calidad de las etiquetas y la utilidad del infrarrojo.
+    """
+    label_root = pathlib.Path(labels_base_path)
+    image_root = pathlib.Path(images_base_path)
+    label_files = list(label_root.rglob("*_labelids.png"))
+    samples = random.sample(label_files, num_samples)
+
+    fig, axes = plt.subplots(num_samples, 3, figsize=(22, 5 * num_samples))
+
+    for i, lp in enumerate(samples):
+        seq_name = lp.parent.name
+        # Extraer Frame ID de forma robusta
+        frame_id = lp.name.split("__")[1].split("_")[0]
+        img_folder = image_root / seq_name
+
+        # Localizar RGB y NIR
+        vis_p = next(img_folder.glob(f"*_{frame_id}_*vis.png"), None)
+        nir_p = next(img_folder.glob(f"*_{frame_id}_*nir.png"), None)
+
+        if not vis_p or not nir_p:
+            continue
+
+        # Lectura
+        img_vis = cv2.cvtColor(cv2.imread(str(vis_p)), cv2.COLOR_BGR2RGB)
+        img_nir = cv2.imread(str(nir_p), cv2.IMREAD_GRAYSCALE)
+        mask = cv2.imread(str(lp), cv2.IMREAD_GRAYSCALE)
+
+        axes[i, 0].imshow(img_vis)
+        axes[i, 0].set_title(f"RGB: {seq_name}")
+        axes[i, 1].imshow(img_nir, cmap="gray")
+        axes[i, 1].set_title(f"NIR (Infrarrojo)")
+        axes[i, 2].imshow(mask, cmap="nipy_spectral", vmin=0, vmax=63)
+        axes[i, 2].set_title(f"Fine-Grained Mask: {frame_id}")
+
+        for ax in axes[i]:
+            ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def calculate_rgb_normalization_stats(images_base_path, sample_size=1000) -> tuple:
+    """
+    Calcula Media y Std para la normalización en PyTorch.
+    Usa una submuestra representativa para manejar los 22.5 GB de datos.
+    """
+    img_root = pathlib.Path(images_base_path)
+    all_vis_files = list(img_root.rglob("*_vis.png"))
+
+    selected_files = random.sample(all_vis_files, min(sample_size, len(all_vis_files)))
+
+    pixel_sum = np.zeros(3)
+    pixel_sq_sum = np.zeros(3)
+    count = 0
+
+    print(f"Calculando estadísticas sobre {len(selected_files)} imágenes...")
+    for fp in tqdm(selected_files):
+        img = cv2.imread(str(fp))
+        if img is None:
+            continue
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
+        pixel_sum += np.mean(img, axis=(0, 1))
+        pixel_sq_sum += np.mean(img**2, axis=(0, 1))
+        count += 1
+
+    mean = pixel_sum / count
+    std = np.sqrt((pixel_sq_sum / count) - mean**2)
+
+    print("\n--- PARÁMETROS DE NORMALIZACIÓN ---")
+    print(f"Mean (R, G, B): {mean}")
+    print(f"Std  (R, G, B): {std}")
+    return mean, std
+
+
 if __name__ == "__main__":
-    LABELS_BASE_PATH = "data/goose2D/goose_2d_train/labels/train"
-    IMAGES_BASE_PATH = "data/goose2D/goose_2d_train/images/train"
-    visual_inspection(LABELS_BASE_PATH, IMAGES_BASE_PATH, num_samples=3)
+    LABELS_PATH = "data/goose2D/goose_2d_train/labels/train"
+    IMAGES_PATH = "data/goose2D/goose_2d_train/images/train"
+
+    # 1. Análisis de Geometría
+    analyze_geometry(IMAGES_PATH)
+
+    # 2. Inspección Triple
+    triple_visual_inspection(LABELS_PATH, IMAGES_PATH, num_samples=3)
+
+    # 3. Normalización
+    mu, sigma = calculate_rgb_normalization_stats(IMAGES_PATH)
