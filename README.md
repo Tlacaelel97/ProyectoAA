@@ -1,6 +1,5 @@
 # Proyecto Final
 
-
 ## Data
 
 Los datos deben estar dentro del proyecto en una carpeta llamada `data`
@@ -30,6 +29,7 @@ Esto lo puedes lograr descargando directamente el dataset desde la pagina de goo
 Las funciones que se usan en el proyecto estan dentro de la carpeta `src` 
 
 - `EDA.py`
+- `dataset.py`
 
 ## Pruebas
 
@@ -39,3 +39,4 @@ Para ir ejecutando las pruebas se puede hacer desde el notebook `source.py` Se r
 pip install -r requirements.txt
 ```
 
+Para consultar la versión de pytorch de acuerdo a tu sistema visita https://pytorch.org/get-started/locally/
