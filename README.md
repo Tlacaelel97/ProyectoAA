@@ -28,8 +28,9 @@ Esto lo puedes lograr descargando directamente el dataset desde la pagina de goo
 
 Las funciones que se usan en el proyecto estan dentro de la carpeta `src` 
 
-- `EDA.py`
 - `dataset.py`
+- `EDA.py`
+- `model.py`
 
 ## Pruebas
 
