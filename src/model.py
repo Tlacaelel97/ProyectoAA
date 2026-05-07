@@ -22,23 +22,11 @@ class VQVAEConfig:
 
 
 class ResidualBlock(nn.Module):
-    """
-    Bloque residual para preservar detalles de alta frecuencia en entornos rurales.
-    """
-
     def __init__(self, in_channels, num_hiddens, num_residual_hiddens):
-        """
-        Constructor del bloque residual.
-        Args:
-            in_channels: Número de canales de entrada.
-            num_hiddens: Número de canales de salida del bloque residual.
-            num_residual_hiddens: Número de canales en la capa oculta dentro del bloque residual.
-        """
         super(ResidualBlock, self).__init__()
-        # sequential de capas dentro del bloque residual
         self._block = nn.Sequential(
-            nn.ReLU(True),  # activación ReLU para introducir no linealidad
-            nn.Conv2d(  # convolución para procesar características dentro del bloque residual
+            nn.ReLU(inplace=False),
+            nn.Conv2d(
                 in_channels=in_channels,
                 out_channels=num_residual_hiddens,
                 kernel_size=3,
@@ -46,7 +34,7 @@ class ResidualBlock(nn.Module):
                 padding=1,
                 bias=False,
             ),
-            nn.ReLU(True),
+            nn.ReLU(inplace=False),
             nn.Conv2d(
                 in_channels=num_residual_hiddens,
                 out_channels=num_hiddens,
